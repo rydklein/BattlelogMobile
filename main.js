@@ -3,10 +3,13 @@
 // I figure out how to do everything properly.
 const axios = require("axios").default;
 const qs = require("qs");
+const uuid = require("uuid");
 const config = require("./config.json");
-const authUrl = "https://www.ea.com/login";
+// const authUrl = "https://www.ea.com/login";
+const authUrl = "https://accounts.ea.com/connect/auth?client_id=sparta-companion-web&response_type=code&display=web2/login&locale=en_US&redirect_uri=https%3A%2F%2Fcompanion.battlefield.com%2Fcompanion%2Fsso%3Fprotocol%3Dhttps";
+const compAPI = "https://companion-api.battlefield.com/jsonrpc/web/api?Companion.";
 // Not sure how much of this is actually needed. I don't really feel like testing, though.
-const authPayload = {
+const eaAuthPayload = {
     "email": config.email,
     "password": config.password,
     "pn_text": "",
@@ -43,7 +46,7 @@ async function getEALoginCode() {
     const options = {
         method: "POST",
         headers: headers,
-        data: qs.stringify(authPayload),
+        data: qs.stringify(eaAuthPayload),
         maxRedirects: 0,
         url: success.url,
     };
@@ -118,8 +121,8 @@ async function getWithCookieRedirects(url, cookies) {
         // I really should do this in a less disgusting way. However,
         // I really don't care.
         let redirUrl = error.response.headers.location;
-        if (redirUrl.includes("login_check?code=")) {
-            const returnData = redirUrl.split("?code=")[1].split("&state=")[0];
+        if (redirUrl.includes("&code=")) {
+            const returnData = redirUrl.split("code=")[1];
             return returnData;
         }
         // If the redirect location is just the location without the domain,
@@ -137,4 +140,37 @@ async function getWithCookieRedirects(url, cookies) {
         cookies: cookies,
     };
     return returnData;
+}
+async function getCompanionSession() {
+    const bcAuthPayload = {
+        "jsonrpc": "2.0",
+        "method": "Companion.loginFromAuthCode",
+        "params":
+            {
+                "code": await getEALoginCode(),
+                "redirectUri":"https://companion.battlefield.com/companion/sso?protocol=https",
+            },
+        "id": uuid.v4(),
+    };
+    return (await axios.post(compAPI + "loginFromAuthCode", bcAuthPayload)).data.result.id;
+}
+async function getBattlelogToken() {
+    const blTokenPayload = {
+        "jsonrpc":"2.0",
+        "method":"Companion.getBattlelogAuthCode",
+        "params":{},
+        "id":uuid.v4(),
+    };
+    const headers = {
+        "X-GatewaySession": await getCompanionSession(),
+        "X-ClientVersion": "companion-4569f32f",
+    };
+    const options = {
+        method: "POST",
+        headers: headers,
+        data: blTokenPayload,
+        url: compAPI + "getBattlelogAuthCode",
+    };
+    const battlelogToken = await axios(options);
+    console.log(battlelogToken);
 }
