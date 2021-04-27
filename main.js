@@ -1,13 +1,15 @@
-// Hi everyone! This is horrible code. Why? I have no
-// idea what I'm doing, and will probably rewrite this once
-// I figure out how to do everything properly.
+// New header! So Exciting. Anyways... So this is as done as the JS version of this is going to get.
+// Now I get to rewrite it in C#... fun times. Hopefully, I can add this to AdkatsLRT, and add a good
+// PID Resolver to Adkats, and fix the loadout issues. We'll see. I really don't know what I'm doing.
 const axios = require("axios").default;
 const qs = require("qs");
 const uuid = require("uuid");
+const fs = require("fs");
 const config = require("./config.json");
 // const authUrl = "https://www.ea.com/login";
 const authUrl = "https://accounts.ea.com/connect/auth?client_id=sparta-companion-web&response_type=code&display=web2/login&locale=en_US&redirect_uri=https%3A%2F%2Fcompanion.battlefield.com%2Fcompanion%2Fsso%3Fprotocol%3Dhttps";
 const compAPI = "https://companion-api.battlefield.com/jsonrpc/web/api?Companion.";
+const loadoutAPI = "https://battlelog.battlefield.com/bf4/mobile/getloadout";
 // Not sure how much of this is actually needed. I don't really feel like testing, though.
 const eaAuthPayload = {
     "email": config.email,
@@ -142,19 +144,24 @@ async function getWithCookieRedirects(url, cookies) {
     return returnData;
 }
 async function getCompanionSession() {
+    // Uses JSONRPC Spec. ID is random UUIDv4.
     const bcAuthPayload = {
         "jsonrpc": "2.0",
         "method": "Companion.loginFromAuthCode",
         "params":
             {
                 "code": await getEALoginCode(),
+                // I guessed this one. I'm so smart.
                 "redirectUri":"https://companion.battlefield.com/companion/sso?protocol=https",
             },
         "id": uuid.v4(),
     };
+
     return (await axios.post(compAPI + "loginFromAuthCode", bcAuthPayload)).data.result.id;
 }
 async function getBattlelogToken() {
+    // Gets the battlelog login code. This flow is similar to, but much less complex
+    // Than the EA login code.
     const blTokenPayload = {
         "jsonrpc":"2.0",
         "method":"Companion.getBattlelogAuthCode",
@@ -171,6 +178,42 @@ async function getBattlelogToken() {
         data: blTokenPayload,
         url: compAPI + "getBattlelogAuthCode",
     };
-    const battlelogToken = await axios(options);
-    console.log(battlelogToken);
+    const res = await axios(options);
+    return res.data.result.authCode;
 }
+async function getBattlelogSession() {
+    const battlelogToken = await getBattlelogToken();
+    const sessionRequest = (await axios.get("https://battlelog.battlefield.com/sso/?tokentype=code&mobile=true&code=" + battlelogToken));
+    return sessionRequest.data.data.sessionKey;
+}
+async function getLoadout() {
+    const headers = {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-App-Version": "2.0.0",
+        "X-Session-Id": await getBattlelogSession(),
+    };
+    // This should be self-explanitory. This is my persona, as a demo.
+    const getLoadoutPayload = {
+        "personaId":"1302145539",
+        "personaName":"BadPylot",
+        "platformInt":"1",
+        "timestamp": Date.now(),
+    };
+    const options = {
+        method: "POST",
+        headers: headers,
+        data: qs.stringify(getLoadoutPayload),
+        url: loadoutAPI,
+    };
+    const loadout = await axios(options);
+    return loadout;
+}
+async function main() {
+    const data = (await getLoadout()).data.data;
+    fs.writeFile("./fetchedLoaout.json", JSON.stringify(data), function(err) {
+        if(err) {
+            return console.log(err);
+        }
+    });
+}
+main();

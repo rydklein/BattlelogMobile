@@ -76,3 +76,4 @@ typings/
 .fusebox/
 # Other Stuff
 config.json
+fetchedLoaout.json
